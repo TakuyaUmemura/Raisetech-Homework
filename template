@@ -1,0 +1,269 @@
+AWSTemplateFormatVersion: 2010-09-09
+
+Parameters: 
+#EC2キーペア
+  CfEC2KeyPair:
+    Description: EC2 KeyPair
+    Type: AWS::EC2::KeyPair::KeyName 
+
+#RDSパラメーター
+  CfRDSMasterUserName:
+    Type: String
+    Default: admin
+    MinLength: 1
+    MaxLength: 16
+    NoEcho: true
+
+  CfRDSMasterUserPassword:
+    Type: String
+    Default: password
+    MinLength: 8
+    MaxLength: 41
+    NoEcho: true
+    AllowedPattern: ^[a-zA-Z0-9]*$
+
+Resources:
+#VPC
+  CfVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsHostnames: true    
+      Tags:
+        - Key: keyname
+          Value: CfVPC 
+  
+#パブリックサブネット*2
+  PublicSubnet1a:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: ap-northeast-1a
+      VpcId: !Ref CfVPC
+      CidrBlock: 10.0.0.0/24
+      Tags:
+        - Key: keyname
+          Value: PublicSubnet1a
+      MapPublicIpOnLaunch: true
+  
+  PublicSubnet1c:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: ap-northeast-1c
+      VpcId: !Ref CfVPC
+      CidrBlock: 10.0.1.0/24
+      Tags:
+        - Key: keyname
+          Value: PublicSubnet1c
+      MapPublicIpOnLaunch: true
+
+#プライベートサブネット*2
+  PrivateSubnet1a:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: ap-northeast-1a
+      VpcId: !Ref CfVPC
+      CidrBlock: 10.0.2.0/24
+      Tags:
+        - Key: keyname
+          Value: PrivateSubnet1a
+      MapPublicIpOnLaunch: false
+
+  PrivateSubnet1c:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: ap-northeast-1c
+      VpcId: !Ref CfVPC
+      CidrBlock: 10.0.3.0/24
+      Tags:
+        - Key: keyname
+          Value: PrivateSubnet1c
+      MapPublicIpOnLaunch: false
+
+#インターネットゲートウェイ
+  CfIGW:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: keyname
+          Value: CfIGW
+
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref CfVPC
+      InternetGatewayId: !Ref CfIGW
+  
+#ルートテーブル
+  CfRouteTableForPublicSubnet:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref CfVPC
+      Tags:
+        - Key: keyname
+          Value: CfRouteTableForPublicSubnet
+
+  CfRouteforPublicSubnet:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref CfRouteTableForPublicSubnet
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref CfIGW
+
+  CfSubnetRouteTableAssociationPublic1a:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId:
+        Ref: PublicSubnet1a        
+      RouteTableId:
+        Ref: CfRouteTableForPublicSubnet
+        
+  CfSubnetRouteTableAssociationPublic1c:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId:
+        Ref: PublicSubnet1c        
+      RouteTableId:
+        Ref: CfRouteTableForPublicSubnet
+
+#パブリックサブネットセキュリティグループ
+  CfSecurityGroupForPublic:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: CfSecurityGroupForPublic
+      GroupDescription: CfSecurityGroupForPublic
+      VpcId: !Ref CfVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 3000
+          ToPort: 3000
+          CidrIp: 0.0.0.0/0      
+      Tags:
+        - Key: Name
+          Value: CfSecurityGroupForPublic
+
+#プライベートサブネットセキュリティグループ
+  CfSecurityGroupforPrivate:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: CfSecurityGroupforPrivate
+      GroupDescription: CfSecurityGroupforPrivate
+      VpcId: !Ref CfVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          CidrIp: 0.0.0.0/0     
+      Tags:
+        - Key: Name
+          Value: CfSecurityGroupforPrivate
+
+#EC2インスタンス
+  CfEC2:
+    Type: AWS::EC2::Instance
+    Properties:
+      KeyName: !Ref CfEC2KeyPair
+      ImageId: ami-0a1c2ec61571737db 
+      InstanceType: t2.micro      
+      NetworkInterfaces: 
+        - AssociatePublicIpAddress: true
+          DeviceIndex: 0
+          GroupSet:
+            - !Ref CfSecurityGroupForPublic
+          SubnetId: !Ref PublicSubnet1a     
+      Tags:
+        - Key: key
+          Value: CfEC2
+
+#DBサブネットグループ
+  CfDBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: CfDBSubnetGroup
+      SubnetIds:
+        - !Ref PrivateSubnet1a
+        - !Ref PrivateSubnet1c
+      Tags:
+        - Key: keyname
+          Value: CfDBSubnetGroup
+
+#RDSインスタンス
+  CfDBInstance:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      AllocatedStorage: 20
+      DBInstanceClass: db.t2.micro
+      AutoMinorVersionUpgrade: true
+      AvailabilityZone: ap-northeast-1a
+      BackupRetentionPeriod: 7
+      CopyTagsToSnapshot: true
+      DBInstanceIdentifier: CfDB
+      DBName: CfDBInstance
+      DBSubnetGroupName: !Ref CfDBSubnetGroup
+      Engine: MySQL
+      EngineVersion: 5.7.22
+      MasterUsername: !Ref CfRDSMasterUserName
+      MasterUserPassword: !Ref CfRDSMasterUserPassword
+      PubliclyAccessible: false 
+      StorageEncrypted: false
+      StorageType: gp2
+      VPCSecurityGroups:
+        - !Ref CfSecurityGroupforPrivate
+      Tags:
+        - Key: keyname
+          Value: CfDBInstance
+
+#アプリケーションロードバランサー
+  CfElasticLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties: 
+      IpAddressType: ipv4
+      Name: CfElasticLoadBalancer
+      Scheme: internet-facing
+      SecurityGroups: 
+        - !Ref CfSecurityGroupForPublic
+      Subnets: 
+        - !Ref PublicSubnet1a
+        - !Ref PublicSubnet1c
+      Tags: 
+        - Key: keyname
+          Value: CfElasticLoadBalancer
+      Type: application
+
+  CfElasticLoadBalancerListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties: 
+      DefaultActions: 
+        - TargetGroupArn: !Ref CfElasticLoadBalancerTargetGroup
+          Type: forward
+      LoadBalancerArn: !Ref CfElasticLoadBalancer
+      Port: 80
+      Protocol: HTTP
+
+  CfElasticLoadBalancerTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties: 
+      HealthCheckPort: 3000
+      HealthCheckProtocol: HTTP
+      Name: CfElasticLoadBalancerTargetGroup
+      Port: 80
+      Protocol: HTTP
+      Tags: 
+        - Key: keyname
+          Value: CfElasticLoadBalancerTargetGroup
+      Targets: 
+        - Id: !Ref CfEC2
+          Port: 3000
+      TargetType: instance
+      VpcId: !Ref CfVPC
