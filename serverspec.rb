@@ -10,9 +10,9 @@ describe port(22) do
   it { should be_listening }
 end
 
-#describe port(443) do
-#  it { should be_listening }
-#end
+describe port(443) do
+  it { should be_listening }
+end
 #httpsの環境構築をしていないのでエラー
 
 describe port(3000) do
